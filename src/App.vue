@@ -103,6 +103,7 @@ watch(
   <main class="app">
     <section class="generator">
       <header class="header">
+        <img src="/free-icon-lotto-4994219.png" alt="Лото" class="logo">
         <span class="eyebrow">RANDOM NUMBER</span>
         <h1>Генератор чисел</h1>
         <p>Случайные числа без повторений</p>
@@ -160,6 +161,12 @@ watch(
       <button v-if="pulled.length" class="reset" @click="clear">
         Сбросить
       </button>
+
+      <div class="credits">
+        <a href="https://www.flaticon.com/ru/free-icons/" title="лото иконки" target="_blank" rel="noopener noreferrer">
+          Lotto icon by Magnific — Flaticon
+        </a>
+      </div>
     </section>
   </main>
 </template>
@@ -202,6 +209,37 @@ body {
 
 .header {
   text-align: center;
+}
+
+.logo {
+  display: block;
+
+  width: 52px;
+  height: 52px;
+
+  margin: 0 auto 14px;
+
+  object-fit: contain;
+}
+
+.credits {
+  margin-top: 28px;
+
+  text-align: center;
+  font-size: 10px;
+}
+
+.credits a {
+  color: #65697a;
+  text-decoration: none;
+  opacity: 0.55;
+
+  transition: opacity 0.2s;
+}
+
+.credits a:hover {
+  opacity: 1;
+  text-decoration: underline;
 }
 
 .eyebrow {
