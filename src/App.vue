@@ -111,28 +111,19 @@ watch(
       <div class="range">
         <label>
           <span>От</span>
-          <input
-            v-model.number="diapason.min"
-            type="number"
-          >
+          <input v-model.number="diapason.min" type="number">
         </label>
 
         <span class="range-divider">—</span>
 
         <label>
           <span>До</span>
-          <input
-            v-model.number="diapason.max"
-            type="number"
-          >
+          <input v-model.number="diapason.max" type="number">
         </label>
       </div>
 
       <div class="result">
-        <div
-          class="number"
-          :class="{ empty: lastPulled === null }"
-        >
+        <div class="number" :class="{ empty: lastPulled === null }">
           {{ lastPulled ?? '?' }}
         </div>
 
@@ -141,11 +132,7 @@ watch(
         </span>
       </div>
 
-      <button
-        v-if="!isFinished"
-        class="generate"
-        @click="generateRandom"
-      >
+      <button v-if="!isFinished" class="generate" @click="generateRandom">
         Сгенерировать число
       </button>
 
@@ -158,42 +145,32 @@ watch(
           </span>
         </div>
 
-        <div
-          v-if="pulled.length"
-          class="numbers"
-        >
-          <div
-            v-for="(value, index) in pulled"
-            :key="value"
-            class="history-number"
-            :class="{ latest: index === pulled.length - 1 }"
-          >
+        <div v-if="pulled.length" class="numbers">
+          <div v-for="(value, index) in pulled" :key="value" class="history-number"
+            :class="{ latest: index === pulled.length - 1 }">
             {{ value }}
           </div>
         </div>
 
-        <div
-          v-else
-          class="empty-history"
-        >
+        <div v-else class="empty-history">
           Здесь появятся выпавшие числа
         </div>
       </div>
 
-      <button
-        v-if="pulled.length"
-        class="reset"
-        @click="clear"
-      >
+      <button v-if="pulled.length" class="reset" @click="clear">
         Сбросить
       </button>
     </section>
   </main>
 </template>
 
-<style scoped>
+<style>
 * {
   box-sizing: border-box;
+}
+
+body {
+  margin: 0;
 }
 
 .app {
@@ -434,14 +411,195 @@ button {
 }
 
 @media (max-width: 600px) {
+  .app {
+    min-height: 100dvh;
+    align-items: flex-start;
+    padding: 16px 12px;
+  }
+
   .generator {
-    padding: 28px 20px;
+    max-width: 100%;
+    min-height: calc(100dvh - 32px);
+    padding: 24px 18px;
+
+    border-radius: 22px;
+  }
+
+  .header h1 {
+    margin-top: 6px;
+    font-size: 26px;
+    line-height: 1.15;
+  }
+
+  .header p {
+    margin-top: 6px;
+    font-size: 14px;
+  }
+
+  .eyebrow {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+  }
+
+  .range {
+    gap: 10px;
+    margin: 24px 0 20px;
+  }
+
+  .range label {
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  .range input {
+    width: 82px;
+    height: 44px;
+    padding: 8px;
+
+    font-size: 16px;
+    border-radius: 10px;
+  }
+
+  .range-divider {
+    padding-bottom: 12px;
+  }
+
+  .result {
+    margin: 16px 0 24px;
   }
 
   .number {
-    width: 145px;
-    height: 145px;
-    font-size: 60px;
+    width: 140px;
+    height: 140px;
+
+    font-size: 58px;
+  }
+
+  .result span {
+    margin-top: 10px;
+    font-size: 12px;
+  }
+
+  .generate {
+    min-height: 52px;
+    padding: 14px 16px;
+
+    font-size: 16px;
+    border-radius: 12px;
+  }
+
+  .history {
+    margin-top: 24px;
+    padding-top: 20px;
+  }
+
+  .history-header {
+    margin-bottom: 14px;
+  }
+
+  .history-header h2 {
+    font-size: 14px;
+  }
+
+  .history-header span {
+    font-size: 12px;
+  }
+
+  .numbers {
+    display: grid;
+
+    grid-template-columns: repeat(auto-fill,
+        minmax(40px, 1fr));
+
+    gap: 8px;
+  }
+
+  .history-number {
+    width: 100%;
+    max-width: 44px;
+    aspect-ratio: 1;
+
+    justify-self: center;
+
+    height: auto;
+
+    font-size: 13px;
+  }
+
+  .empty-history {
+    padding: 20px 12px;
+
+    font-size: 13px;
+  }
+
+  .reset {
+    margin-top: 18px;
+    padding: 10px 16px;
+
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 380px) {
+  .app {
+    width: 100%;
+    min-height: 100vh;
+    min-height: 100dvh;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 32px 20px;
+
+    background:
+      radial-gradient(circle at 50% 20%, #252a42 0%, transparent 35%),
+      #10121a;
+
+    color: #f5f6fa;
+    font-family: Inter, system-ui, sans-serif;
+  }
+
+  .generator {
+    min-height: calc(100dvh - 20px);
+    padding: 20px 14px;
+
+    border-radius: 18px;
+  }
+
+  .header h1 {
+    font-size: 23px;
+  }
+
+  .header p {
+    font-size: 13px;
+  }
+
+  .range {
+    margin: 20px 0 16px;
+  }
+
+  .range input {
+    width: 74px;
+  }
+
+  .number {
+    width: 125px;
+    height: 125px;
+
+    font-size: 52px;
+  }
+
+  .numbers {
+    grid-template-columns: repeat(auto-fill,
+        minmax(36px, 1fr));
+
+    gap: 7px;
+  }
+
+  .history-number {
+    max-width: 40px;
+    font-size: 12px;
   }
 }
 </style>
