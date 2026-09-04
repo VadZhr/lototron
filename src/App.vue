@@ -32,16 +32,63 @@ const isCountingDown = ref(false);
 const showHintModal = ref(false);
 const showAnswerModal = ref(false);
 
+let audioContext = null;
+
+const playBeep = (long = false) => {
+  if (!audioContext) {
+    audioContext = new AudioContext();
+  }
+
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+
+  oscillator.type = 'sine';
+  oscillator.frequency.value = long ? 1000 : 750;
+
+  gain.gain.value = 0.15;
+
+  oscillator.connect(gain);
+  gain.connect(audioContext.destination);
+
+  const now = audioContext.currentTime;
+
+  // короткий "пип" или длинный "пииииип"
+  const duration = long ? 0.7 : 0.15;
+
+  gain.gain.setValueAtTime(0.15, now);
+
+  gain.gain.exponentialRampToValueAtTime(
+    0.001,
+    now + duration
+  );
+
+  oscillator.start(now);
+  oscillator.stop(now + duration);
+};
+
+const wait = (ms) => {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+};
+
 const startCountdown = async (number) => {
   isCountingDown.value = true;
 
-  for (let value = 3; value >= 1; value--) {
-    countdown.value = value;
+  // 3
+  countdown.value = 3;
+  playBeep();
+  await wait(1000);
 
-    await new Promise((resolve) => {
-      setTimeout(resolve, 1000);
-    });
-  }
+  // 2
+  countdown.value = 2;
+  playBeep();
+  await wait(1000);
+
+  // 1
+  countdown.value = 1;
+  playBeep(true);
+  await wait(1000);
 
   countdown.value = null;
   isCountingDown.value = false;
