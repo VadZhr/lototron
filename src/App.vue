@@ -7,15 +7,24 @@ import {
   watch,
 } from 'vue';
 import { songs } from './constants';
+import CountdownOverlay from './components/CountdownOverlay.vue';
+import GameHistory from './components/GameHistory.vue';
 import LoginForm from './components/LoginForm.vue';
+import MusicPlayer from './components/MusicPlayer.vue';
+import PartySwitch from './components/PartySwitch.vue';
+import SongModals from './components/SongModals.vue';
 
 const isAuthorized = ref(false);
 
 onMounted(() => {
   loadFromLocalStorage();
 
-  isAuthorized.value =
-    sessionStorage.getItem('muzloto-authorized') === 'true';
+  try {
+    isAuthorized.value =
+      sessionStorage.getItem('muzloto-authorized') === 'true';
+  } catch (error) {
+    console.warn('Session storage недоступен', error);
+  }
 });
 
 const handleLoginSuccess = () => {
@@ -23,11 +32,14 @@ const handleLoginSuccess = () => {
 };
 
 const STORAGE_KEY = 'random-number-generator';
+const PARTY_TYPE_STORAGE_KEY = `${STORAGE_KEY}:party-type`;
+const getPartyStorageKey = (type) => `${STORAGE_KEY}:${type}`;
 
 const partyType = ref('girls');
 
 const countdown = ref(null);
 const isCountingDown = ref(false);
+let countdownRunId = 0;
 
 const showHintModal = ref(false);
 const showAnswerModal = ref(false);
@@ -35,35 +47,49 @@ const showAnswerModal = ref(false);
 let audioContext = null;
 
 const playBeep = (long = false) => {
-  if (!audioContext) {
-    audioContext = new AudioContext();
-  }
+  try {
+    const AudioContextClass =
+      window.AudioContext || window.webkitAudioContext;
 
-  const oscillator = audioContext.createOscillator();
-  const gain = audioContext.createGain();
+    if (!AudioContextClass) return;
 
-  oscillator.type = 'sine';
-  oscillator.frequency.value = long ? 1000 : 750;
+    if (!audioContext) {
+      audioContext = new AudioContextClass();
+    }
 
-  gain.gain.value = 0.15;
+    if (audioContext.state === 'suspended') {
+      audioContext.resume().catch(() => {});
+    }
 
-  oscillator.connect(gain);
-  gain.connect(audioContext.destination);
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
 
-  const now = audioContext.currentTime;
+    oscillator.type = 'sine';
+    oscillator.frequency.value = long ? 1000 : 750;
+
+    gain.gain.value = 0.15;
+
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+
+    const now = audioContext.currentTime;
 
   // короткий "пип" или длинный "пииииип"
-  const duration = long ? 0.7 : 0.15;
+    const duration = long ? 0.7 : 0.15;
 
-  gain.gain.setValueAtTime(0.15, now);
+    gain.gain.setValueAtTime(0.15, now);
 
-  gain.gain.exponentialRampToValueAtTime(
-    0.001,
-    now + duration
-  );
+    gain.gain.exponentialRampToValueAtTime(
+      0.001,
+      now + duration
+    );
 
-  oscillator.start(now);
-  oscillator.stop(now + duration);
+    oscillator.start(now);
+    oscillator.stop(now + duration);
+  } catch (error) {
+    // The countdown must continue even when Web Audio is unavailable.
+    console.warn('Не удалось воспроизвести сигнал отсчёта', error);
+  }
 };
 
 const wait = (ms) => {
@@ -73,22 +99,26 @@ const wait = (ms) => {
 };
 
 const startCountdown = async (number) => {
+  const runId = ++countdownRunId;
   isCountingDown.value = true;
 
   // 3
   countdown.value = 3;
   playBeep();
   await wait(1000);
+  if (runId !== countdownRunId) return;
 
   // 2
   countdown.value = 2;
   playBeep();
   await wait(1000);
+  if (runId !== countdownRunId) return;
 
   // 1
   countdown.value = 1;
   playBeep(true);
   await wait(1000);
+  if (runId !== countdownRunId) return;
 
   countdown.value = null;
   isCountingDown.value = false;
@@ -96,19 +126,47 @@ const startCountdown = async (number) => {
   await playSong(number);
 };
 
+const AUDIO_LOAD_TIMEOUT_MS = 30000;
+
+const playAudio = async (targetAudio) => {
+  let timeoutId;
+
+  try {
+    await Promise.race([
+      targetAudio.play(),
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error('Превышено время ожидания загрузки аудио'));
+        }, AUDIO_LOAD_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (error) {
+    targetAudio.pause();
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const cancelCountdown = () => {
+  countdownRunId += 1;
+  countdown.value = null;
+  isCountingDown.value = false;
+};
+
 const audio = ref(null);
+let audioTrackNumber = null;
 
 const isPlaying = ref(false);
 const isPaused = ref(false);
 const audioFinished = ref(true);
+const isAudioLoading = ref(false);
+const audioError = ref(false);
 
 const duration = ref(0);
 const currentTime = ref(0);
 
 const volume = ref(0.8);
-
-const showHint = ref(false);
-const showAnswer = ref(false);
 
 const currentSong = computed(() => {
   if (lastPulled.value === null) {
@@ -129,23 +187,25 @@ const canGenerate = computed(() => {
   );
 });
 
-const playSong = async (number) => {
+const prepareSong = (number) => {
   destroyAudio();
-
-  showHint.value = false;
-  showAnswer.value = false;
 
   duration.value = 0;
   currentTime.value = 0;
 
   audioFinished.value = false;
   isPaused.value = false;
+  isPlaying.value = false;
+  isAudioLoading.value = true;
+  audioError.value = false;
 
+  const baseUrl = import.meta.env.BASE_URL;
   const newAudio = new Audio(
-    `/audio/${partyType.value}/${number}.mp3`
+    `${baseUrl}audio/${partyType.value}/${number}.mp3`
   );
 
   newAudio.volume = volume.value;
+  newAudio.preload = 'auto';
 
   newAudio.addEventListener(
     'loadedmetadata',
@@ -163,18 +223,40 @@ const playSong = async (number) => {
   );
 
   audio.value = newAudio;
+  audioTrackNumber = number;
+  newAudio.load();
+
+  return newAudio;
+};
+
+const playSong = async (number) => {
+  let newAudio = audio.value && audioTrackNumber === number
+    ? audio.value
+    : null;
 
   try {
-    await newAudio.play();
+    if (!newAudio) {
+      newAudio = prepareSong(number);
+    }
+
+    await playAudio(newAudio);
+
+    // The track may have been replaced while play() was waiting for data.
+    if (audio.value !== newAudio) return;
 
     isPlaying.value = true;
+    isAudioLoading.value = false;
   } catch (error) {
+    if (newAudio && audio.value !== newAudio) return;
+
     console.error(
       'Не удалось запустить аудио',
       error
     );
 
     isPlaying.value = false;
+    isAudioLoading.value = false;
+    audioError.value = true;
     audioFinished.value = true;
   }
 };
@@ -200,23 +282,33 @@ const handleTimeUpdate = () => {
 const handleEnded = () => {
   isPlaying.value = false;
   isPaused.value = false;
+  isAudioLoading.value = false;
   audioFinished.value = true;
 
   currentTime.value = duration.value;
 };
 
 const togglePause = async () => {
-  if (!audio.value || audioFinished.value) {
+  if (!audio.value || audioFinished.value || isAudioLoading.value) {
     return;
   }
 
   if (audio.value.paused) {
+    const currentAudio = audio.value;
+    isAudioLoading.value = true;
+
     try {
-      await audio.value.play();
+      await playAudio(currentAudio);
+
+      if (audio.value !== currentAudio) return;
 
       isPlaying.value = true;
       isPaused.value = false;
+      isAudioLoading.value = false;
     } catch (error) {
+      if (audio.value !== currentAudio) return;
+
+      isAudioLoading.value = false;
       console.error(error);
     }
 
@@ -230,19 +322,36 @@ const togglePause = async () => {
 };
 
 const replaySong = async () => {
-  if (!audio.value) return;
+  if (isAudioLoading.value || lastPulled.value === null) return;
 
-  audio.value.currentTime = 0;
+  if (!audio.value) {
+    await playSong(lastPulled.value);
+    return;
+  }
+
+  const currentAudio = audio.value;
+
+  currentAudio.currentTime = 0;
 
   currentTime.value = 0;
   audioFinished.value = false;
+  isAudioLoading.value = true;
+  audioError.value = false;
 
   try {
-    await audio.value.play();
+    await playAudio(currentAudio);
+
+    if (audio.value !== currentAudio) return;
 
     isPlaying.value = true;
     isPaused.value = false;
+    isAudioLoading.value = false;
   } catch (error) {
+    if (audio.value !== currentAudio) return;
+
+    isAudioLoading.value = false;
+    audioError.value = true;
+    audioFinished.value = true;
     console.error(error);
   }
 };
@@ -251,6 +360,11 @@ const changeVolume = () => {
   if (!audio.value) return;
 
   audio.value.volume = volume.value;
+};
+
+const handleVolumeUpdate = (newVolume) => {
+  volume.value = newVolume;
+  changeVolume();
 };
 
 const progress = computed(() => {
@@ -263,22 +377,6 @@ const progress = computed(() => {
     duration.value
   ) * 100;
 });
-
-const formatTime = (seconds) => {
-  if (!Number.isFinite(seconds)) {
-    return '0:00';
-  }
-
-  const minutes =
-    Math.floor(seconds / 60);
-
-  const secs =
-    Math.floor(seconds % 60)
-      .toString()
-      .padStart(2, '0');
-
-  return `${minutes}:${secs}`;
-};
 
 const destroyAudio = () => {
   if (!audio.value) return;
@@ -301,8 +399,10 @@ const destroyAudio = () => {
   );
 
   audio.value = null;
+  audioTrackNumber = null;
 
   isPlaying.value = false;
+  isAudioLoading.value = false;
 };
 
 const pulled = ref([]);
@@ -316,56 +416,110 @@ const isFinished = computed(() => {
   return pulled.value.length >= totalNumbers.value;
 });
 
-const partyLabel = computed(() => {
-  return partyType.value === 'girls'
-    ? 'ДЕВИЧНИК'
-    : 'МАЛЬЧИШНИК';
-});
-
 const setPartyType = (type) => {
+  if (
+    type === partyType.value ||
+    isCountingDown.value ||
+    !audioFinished.value
+  ) {
+    return;
+  }
+
+  saveToLocalStorage();
+  destroyAudio();
   partyType.value = type;
+  pulled.value = [];
+  lastPulled.value = null;
+  diapason.value = { min: 1, max: 42 };
+  audioFinished.value = true;
+  audioError.value = false;
+  loadPartyState(type);
 };
 
 const saveToLocalStorage = () => {
-  localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      partyType: partyType.value,
-      diapason: diapason.value,
-      pulled: pulled.value,
-      lastPulled: lastPulled.value,
-    }),
-  );
+  try {
+    localStorage.setItem(PARTY_TYPE_STORAGE_KEY, partyType.value);
+    localStorage.setItem(
+      getPartyStorageKey(partyType.value),
+      JSON.stringify({
+        diapason: diapason.value,
+        pulled: pulled.value,
+        lastPulled: lastPulled.value,
+      }),
+    );
+  } catch (error) {
+    console.warn('Не удалось сохранить состояние игры', error);
+  }
+};
+
+const applySavedState = (savedData, type) => {
+  if (!savedData) return;
+
+  const parsedData = JSON.parse(savedData);
+  const savedMin = Number(parsedData.diapason?.min);
+  const savedMax = Number(parsedData.diapason?.max);
+
+  if (
+    Number.isInteger(savedMin) &&
+    Number.isInteger(savedMax) &&
+    savedMin <= savedMax &&
+    savedMax - savedMin <= 1000
+  ) {
+    diapason.value = { min: savedMin, max: savedMax };
+  }
+
+  if (Array.isArray(parsedData.pulled)) {
+    pulled.value = [...new Set(parsedData.pulled)].filter(
+      (value) =>
+        Number.isInteger(value) &&
+        value >= diapason.value.min &&
+        value <= diapason.value.max &&
+        songs[type]?.[value],
+    );
+  }
+
+  if (
+    typeof parsedData.lastPulled === 'number' ||
+    parsedData.lastPulled === null
+  ) {
+    lastPulled.value = pulled.value.includes(parsedData.lastPulled)
+      ? parsedData.lastPulled
+      : null;
+  }
+};
+
+const loadPartyState = (type) => {
+  try {
+    const savedData = localStorage.getItem(getPartyStorageKey(type));
+
+    if (!savedData) return false;
+
+    applySavedState(savedData, type);
+    return true;
+  } catch (error) {
+    console.error('Не удалось загрузить сохранение режима', error);
+    return false;
+  }
 };
 
 const loadFromLocalStorage = () => {
-  const savedData = localStorage.getItem(STORAGE_KEY);
-
-  if (!savedData) return;
-
   try {
-    const parsedData = JSON.parse(savedData);
+    const legacyData = localStorage.getItem(STORAGE_KEY);
+    const legacyState = legacyData ? JSON.parse(legacyData) : null;
+    const savedPartyType = localStorage.getItem(PARTY_TYPE_STORAGE_KEY);
 
-    if (
-      parsedData.partyType === 'girls' ||
-      parsedData.partyType === 'boys'
+    if (savedPartyType === 'girls' || savedPartyType === 'boys') {
+      partyType.value = savedPartyType;
+    } else if (
+      legacyState?.partyType === 'girls' ||
+      legacyState?.partyType === 'boys'
     ) {
-      partyType.value = parsedData.partyType;
+      partyType.value = legacyState.partyType;
     }
 
-    if (parsedData.diapason) {
-      diapason.value = parsedData.diapason;
-    }
-
-    if (Array.isArray(parsedData.pulled)) {
-      pulled.value = parsedData.pulled;
-    }
-
-    if (
-      typeof parsedData.lastPulled === 'number' ||
-      parsedData.lastPulled === null
-    ) {
-      lastPulled.value = parsedData.lastPulled;
+    if (!loadPartyState(partyType.value) && legacyData) {
+      applySavedState(legacyData, partyType.value);
+      saveToLocalStorage();
     }
   } catch (error) {
     console.error(
@@ -399,10 +553,14 @@ const generateRandom = () => {
   lastPulled.value = randomValue;
   pulled.value.push(randomValue);
 
-  showHint.value = false;
-  showAnswer.value = false;
   showHintModal.value = false;
   showAnswerModal.value = false;
+
+  try {
+    prepareSong(randomValue);
+  } catch (error) {
+    console.warn('Не удалось начать предварительную загрузку', error);
+  }
 
   startCountdown(randomValue);
 };
@@ -414,13 +572,15 @@ const clear = () => {
 
   if (!confirmed) return;
 
+  cancelCountdown();
+  destroyAudio();
   pulled.value = [];
   lastPulled.value = null;
+  duration.value = 0;
+  currentTime.value = 0;
+  audioFinished.value = true;
+  audioError.value = false;
 };
-
-onMounted(() => {
-  loadFromLocalStorage();
-});
 
 watch(
   [partyType, diapason, pulled, lastPulled],
@@ -431,6 +591,7 @@ watch(
 );
 
 onBeforeUnmount(() => {
+  cancelCountdown();
   destroyAudio();
 });
 </script>
@@ -439,42 +600,18 @@ onBeforeUnmount(() => {
   <main class="app" :class="`theme-${partyType}`">
     <LoginForm v-if="!isAuthorized" @success="handleLoginSuccess" />
     <template v-else>
-      <Transition name="countdown">
-        <div v-if="isCountingDown" class="countdown-overlay">
-          <div :key="countdown" class="countdown-number">
-            {{ countdown }}
-          </div>
-
-          <div class="countdown-label">
-            УГАДАЙ ПЕСНЮ
-          </div>
-        </div>
-      </Transition>
+      <CountdownOverlay :active="isCountingDown" :value="countdown" />
       <div class="content">
 
         <!-- =========================
            ПЕРЕКЛЮЧАТЕЛЬ
       ========================== -->
 
-        <div class="party-switch">
-          <button type="button" class="party-switch-button" :class="{ active: partyType === 'girls' }"
-            @click="setPartyType('girls')">
-            <span class="switch-icon">
-              ♡
-            </span>
-
-            Девичник
-          </button>
-
-          <button type="button" class="party-switch-button" :class="{ active: partyType === 'boys' }"
-            @click="setPartyType('boys')">
-            <span class="switch-icon">
-              ♠
-            </span>
-
-            Мальчишник
-          </button>
-        </div>
+        <PartySwitch
+          :party-type="partyType"
+          :disabled="isCountingDown || !audioFinished"
+          @change="setPartyType"
+        />
 
         <!-- =========================
            ГЕНЕРАТОР
@@ -541,148 +678,23 @@ onBeforeUnmount(() => {
      MUSIC PLAYER
 ========================== -->
 
-          <div v-if="lastPulled !== null" class="music-player">
-
-            <!-- Верхняя строка -->
-
-            <div class="music-header">
-
-              <div class="playing-status">
-
-                <!-- АНИМАЦИЯ ЗВУКА -->
-
-                <div class="equalizer" :class="{
-                  active: isPlaying,
-                }">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </div>
-
-                <div class="music-status-text">
-                  <strong>
-                    {{
-                      audioFinished
-                        ? 'Фрагмент закончился'
-                        : isPlaying
-                          ? 'Сейчас играет'
-                          : 'На паузе'
-                    }}
-                  </strong>
-
-                  <span>
-                    Трек №{{ lastPulled }}
-                  </span>
-                </div>
-
-              </div>
-
-              <div class="music-time">
-                {{ formatTime(currentTime) }}
-                /
-                {{ formatTime(duration) }}
-              </div>
-
-            </div>
-
-
-            <!-- PROGRESS -->
-
-            <div class="progress-track">
-              <div class="progress-value" :style="{
-                width: `${progress}%`,
-              }"></div>
-            </div>
-
-
-            <!-- CONTROLS -->
-
-            <div class="music-controls">
-
-              <button type="button" class="music-control primary-control" :disabled="audioFinished"
-                @click="togglePause">
-                <template v-if="isPlaying">
-                  ❚❚ Пауза
-                </template>
-
-                <template v-else>
-                  ▶ Продолжить
-                </template>
-              </button>
-
-
-              <button type="button" class="music-control" @click="replaySong">
-                ↻ Заново
-              </button>
-
-
-              <!-- VOLUME -->
-
-              <div class="volume-control">
-                <span>
-                  🔊
-                </span>
-
-                <input v-model.number="volume" type="range" min="0" max="1" step="0.05" @input="changeVolume">
-              </div>
-
-            </div>
-
-
-            <!-- HINT / ANSWER -->
-
-            <div class="game-help">
-
-              <div class="game-help-buttons">
-
-                <button type="button" class="hint-button" @click="showHintModal = true">
-                  💡 Подсказка
-                </button>
-
-                <button type="button" class="answer-button" @click="showAnswerModal = true">
-                  👀 Показать ответ
-                </button>
-              </div>
-
-
-              <!-- ПОДСКАЗКА -->
-
-              <Transition name="help">
-                <div v-if="showHint" class="help-content hint-content">
-                  <span class="help-label">
-                    ПОДСКАЗКА
-                  </span>
-
-                  <p>
-                    {{ currentSong.hint }}
-                  </p>
-                </div>
-              </Transition>
-
-
-              <!-- ОТВЕТ -->
-
-              <Transition name="help">
-                <div v-if="showAnswer" class="help-content answer-content">
-                  <span class="help-label">
-                    ОТВЕТ
-                  </span>
-
-                  <strong>
-                    {{ currentSong.artist }}
-                  </strong>
-
-                  <p>
-                    {{ currentSong.title }}
-                  </p>
-                </div>
-              </Transition>
-
-            </div>
-
-          </div>
+          <MusicPlayer
+            v-if="lastPulled !== null"
+            :track-number="lastPulled"
+            :is-playing="isPlaying"
+            :is-loading="isAudioLoading"
+            :has-error="audioError"
+            :is-finished="audioFinished"
+            :current-time="currentTime"
+            :duration="duration"
+            :progress="progress"
+            :volume="volume"
+            @toggle-pause="togglePause"
+            @replay="replaySong"
+            @show-hint="showHintModal = true"
+            @show-answer="showAnswerModal = true"
+            @update:volume="handleVolumeUpdate"
+          />
 
           <!-- =========================
              КНОПКА
@@ -708,32 +720,7 @@ onBeforeUnmount(() => {
              ИСТОРИЯ
         ========================== -->
 
-          <div class="history">
-            <div class="history-header">
-              <h2>
-                Выпавшие числа
-              </h2>
-
-              <span>
-                {{ pulled.length }}
-                /
-                {{ totalNumbers }}
-              </span>
-            </div>
-
-            <div v-if="pulled.length" class="numbers">
-              <div v-for="(value, index) in pulled" :key="value" class="history-number" :class="{
-                latest:
-                  index === pulled.length - 1,
-              }">
-                {{ value }}
-              </div>
-            </div>
-
-            <div v-else class="empty-history">
-              Здесь появятся выпавшие числа
-            </div>
-          </div>
+          <GameHistory :pulled="pulled" :total="totalNumbers" />
 
           <!-- =========================
              НИЗ
@@ -758,64 +745,13 @@ onBeforeUnmount(() => {
 
         </section>
       </div>
-      <Transition name="modal">
-        <div v-if="showHintModal" class="game-modal" @click.self="showHintModal = false">
-          <div class="game-modal-card hint-modal-card">
-
-            <button type="button" class="modal-close" @click="showHintModal = false">
-              ×
-            </button>
-
-            <div class="modal-icon">
-              💡
-            </div>
-
-            <div class="modal-label">
-              ПОДСКАЗКА
-            </div>
-
-            <div class="modal-main-text">
-              {{ currentSong?.hint }}
-            </div>
-
-            <button type="button" class="modal-action" @click="showHintModal = false">
-              Понятно
-            </button>
-
-          </div>
-        </div>
-      </Transition>
-      <Transition name="modal">
-        <div v-if="showAnswerModal" class="game-modal" @click.self="showAnswerModal = false">
-          <div class="game-modal-card answer-modal-card">
-
-            <button type="button" class="modal-close" @click="showAnswerModal = false">
-              ×
-            </button>
-
-            <div class="modal-icon">
-              🎵
-            </div>
-
-            <div class="modal-label">
-              ПРАВИЛЬНЫЙ ОТВЕТ
-            </div>
-
-            <div class="answer-artist">
-              {{ currentSong?.artist }}
-            </div>
-
-            <div class="answer-title">
-              {{ currentSong?.title }}
-            </div>
-
-            <button type="button" class="modal-action" @click="showAnswerModal = false">
-              Закрыть
-            </button>
-
-          </div>
-        </div>
-      </Transition>
+      <SongModals
+        :song="currentSong"
+        :show-hint="showHintModal"
+        :show-answer="showAnswerModal"
+        @close-hint="showHintModal = false"
+        @close-answer="showAnswerModal = false"
+      />
     </template>
   </main>
 
@@ -995,6 +931,11 @@ button {
 
 .party-switch-button:hover {
   color: #ffffff;
+}
+
+.party-switch-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .party-switch-button.active {
@@ -1614,6 +1555,22 @@ button {
 /* =====================================================
    EQUALIZER
 ===================================================== */
+
+.audio-loader {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 3px solid rgba(var(--accent-rgb), 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: audio-loader-spin 0.75s linear infinite;
+}
+
+@keyframes audio-loader-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 .equalizer {
   width: 29px;

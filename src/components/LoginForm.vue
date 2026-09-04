@@ -17,10 +17,14 @@ const authorize = () => {
     login.value === AUTH_LOGIN &&
     password.value === AUTH_PASSWORD
   ) {
-    sessionStorage.setItem(
-      'muzloto-authorized',
-      'true'
-    );
+    try {
+      sessionStorage.setItem(
+        'muzloto-authorized',
+        'true'
+      );
+    } catch (storageError) {
+      console.warn('Session storage недоступен', storageError);
+    }
 
     emit('success');
 
