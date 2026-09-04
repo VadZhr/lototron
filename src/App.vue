@@ -438,21 +438,12 @@ onBeforeUnmount(() => {
           <!-- HEADER -->
 
           <header class="header">
+            <h1>
+              МУЗЛОТО
+            </h1>
             <div class="logo-wrapper">
               <img src="/free-icon-lotto-4994219.png" alt="Лото" class="logo">
             </div>
-
-            <span class="eyebrow">
-              {{ partyLabel }} · RANDOM NUMBER
-            </span>
-
-            <h1>
-              Генератор чисел
-            </h1>
-
-            <p>
-              Случайные числа без повторений
-            </p>
           </header>
 
           <!-- =========================
@@ -1036,29 +1027,29 @@ button {
 ===================================================== */
 
 .header {
-  position: relative;
-
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
 }
 
 .logo-wrapper {
   width: 42px;
   height: 42px;
 
+  flex: 0 0 42px;
+
   display: flex;
   align-items: center;
   justify-content: center;
 
-  margin:
-    0 auto 5px;
+  /* ВАЖНО — никаких margin: 0 auto */
+  margin: 0;
 
-  border:
-    1px solid rgba(var(--accent-rgb), 0.3);
+  border: 1px solid rgba(var(--accent-rgb), 0.3);
+  border-radius: 12px;
 
-  border-radius: 13px;
-
-  background:
-    rgba(var(--accent-rgb), 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
 }
 
 .logo {
@@ -1083,12 +1074,11 @@ button {
 }
 
 .header h1 {
-  margin:
-    4px 0 1px;
-
-  font-size: 29px;
-
-  line-height: 1.05;
+  margin: 0;
+  font-size: 32px;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.04em;
 }
 
 .header p {
@@ -2018,13 +2008,23 @@ button {
   }
 
   .logo-wrapper {
-    width: 34px;
-    height: 34px;
+    width: 42px;
+    height: 42px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    border-radius: 12px;
+
+    background: rgba(var(--accent-rgb), 0.12);
   }
 
   .logo {
-    width: 21px;
-    height: 21px;
+    width: 27px;
+    height: 27px;
+    object-fit: contain;
   }
 
   .header h1 {
