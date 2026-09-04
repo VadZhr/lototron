@@ -450,7 +450,7 @@ onBeforeUnmount(() => {
              ДИАПАЗОН
         ========================== -->
 
-          <div class="range">
+          <!-- <div class="range">
             <label>
               <span>
                 От
@@ -470,7 +470,7 @@ onBeforeUnmount(() => {
 
               <input v-model.number="diapason.max" type="number" max="100">
             </label>
-          </div>
+          </div> -->
 
           <!-- =========================
              РЕЗУЛЬТАТ
